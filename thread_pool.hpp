@@ -318,6 +318,16 @@ public:
      */
     ui32 sleep_duration = 1000;
 
+    /**
+     * @brief The duration, in microseconds, that pop tasks from queue could block for. No need to tune this in most cases.
+     * @detail Larger duration means:
+     * 1. Fewer unnecessary worker threads wake ups.
+     * 2. Longer worker threads exit wait time, which should be fine for most use cases.
+     * 3. Longer time for work thread from un-paused while popping task to paused state.
+     *    - But you shouldn't rely on setting pause=true and hope adding task won't be executed anyway.
+     */
+    ui32 pop_task_timeout = 100'000;
+
 private:
     // ========================
     // Private member functions
@@ -352,7 +362,7 @@ private:
      */
     bool pop_task(std::function<void()> &task)
     {
-        return tasks.try_pop(task);
+        return tasks.wait_and_pop_for(task, pop_task_timeout);
     }
 
     /**
@@ -375,14 +385,14 @@ private:
         while (running)
         {
             std::function<void()> task;
-            if (!paused && pop_task(task))
+            if (paused)
+            {
+                sleep_or_yield();
+            }
+            else if (pop_task(task))
             {
                 task();
                 tasks_total--;
-            }
-            else
-            {
-                sleep_or_yield();
             }
         }
     }
