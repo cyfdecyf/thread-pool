@@ -22,10 +22,11 @@
 #include <iostream>    // std::cout, std::ostream
 #include <memory>      // std::shared_ptr, std::unique_ptr
 #include <mutex>       // std::mutex, std::scoped_lock
-#include <queue>       // std::queue
 #include <thread>      // std::this_thread, std::thread
 #include <type_traits> // std::common_type_t, std::decay_t, std::enable_if_t, std::is_void_v, std::invoke_result_t
 #include <utility>     // std::move
+
+#include "conqueue.hpp"
 
 // ============================================================================================= //
 //                                    Begin class thread_pool                                    //
@@ -75,7 +76,6 @@ public:
      */
     ui64 get_tasks_queued() const
     {
-        const std::scoped_lock lock(queue_mutex);
         return tasks.size();
     }
 
@@ -172,10 +172,7 @@ public:
     void push_task(const F &task)
     {
         tasks_total++;
-        {
-            const std::scoped_lock lock(queue_mutex);
-            tasks.push(std::function<void()>(task));
-        }
+        tasks.push(std::function<void()>(task));
     }
 
     /**
@@ -292,6 +289,9 @@ public:
         {
             if (!paused)
             {
+                // Because support for un-pause and reset, can't wait for queue become empty infinitely.
+                // Besides, task queue becomes empty may still have one last task running.
+                // So we always need to wait for tasks_total becomes 0.
                 if (tasks_total == 0)
                     break;
             }
@@ -349,19 +349,10 @@ private:
      * @brief Try to pop a new task out of the queue.
      *
      * @param task A reference to the task. Will be populated with a function if the queue is not empty.
-     * @return true if a task was found, false if the queue is empty.
      */
     bool pop_task(std::function<void()> &task)
     {
-        const std::scoped_lock lock(queue_mutex);
-        if (tasks.empty())
-            return false;
-        else
-        {
-            task = std::move(tasks.front());
-            tasks.pop();
-            return true;
-        }
+        return tasks.try_pop(task);
     }
 
     /**
@@ -401,11 +392,6 @@ private:
     // ============
 
     /**
-     * @brief A mutex to synchronize access to the task queue by different threads.
-     */
-    mutable std::mutex queue_mutex = {};
-
-    /**
      * @brief An atomic variable indicating to the workers to keep running. When set to false, the workers permanently stop working.
      */
     std::atomic<bool> running = true;
@@ -413,7 +399,7 @@ private:
     /**
      * @brief A queue of tasks to be executed by the threads.
      */
-    std::queue<std::function<void()>> tasks = {};
+    conqueue<std::function<void()>> tasks = {};
 
     /**
      * @brief The number of threads in the pool.

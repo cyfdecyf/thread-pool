@@ -21,6 +21,7 @@ if(ENABLE_TSAN)
 endif()
 
 add_executable(thread_pool_test
+        conqueue.hpp
         thread_pool.hpp
         thread_pool_test.cpp)
 target_link_libraries(thread_pool_test
