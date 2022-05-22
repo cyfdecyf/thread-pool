@@ -96,7 +96,25 @@ public:
         {
             return false;
         }
-        pop_data(data);
+        pop_front(data);
+        return true;
+    }
+
+    /**
+     * @brief Pop an element from the front of the queue, but only when predicate on the front element is satisfied. Return immediately if the queue is empty.
+     *
+     * @param data A reference to data element. Move assigned with the element popped from the queue.
+     * @return true if element get popped, false otherwise.
+     */
+    template <typename Pred>
+    bool try_pop_if(T &data, Pred pred)
+    {
+        std::scoped_lock lock(queue_mutex);
+        if (data_queue.empty() || !pred(data_queue.front()))
+        {
+            return false;
+        }
+        pop_front(data);
         return true;
     }
 
@@ -109,7 +127,7 @@ public:
     {
         std::unique_lock lock(queue_mutex);
         not_empty.wait(lock, [this]() { return !data_queue.empty(); });
-        pop_data(data);
+        pop_front(data);
     }
 
     /**
@@ -129,7 +147,7 @@ public:
         {
             return false;
         }
-        pop_data(data);
+        pop_front(data);
         return true;
     }
 
@@ -182,7 +200,7 @@ private:
      *
      * @param data A reference to data element. Move assigned with the element popped from the queue.
      */
-    void pop_data(T& data)
+    void pop_front(T& data)
     {
         data = std::move(data_queue.front());
         data_queue.pop();
