@@ -36,8 +36,38 @@
  */
 class thread_pool
 {
-    typedef std::uint_fast32_t ui32;
-    typedef std::uint_fast64_t ui64;
+    using i32 = std::int_fast32_t;
+    using ui32 = std::uint_fast32_t;
+    using ui64 = std::uint_fast64_t;
+
+    using worker_id_t = i32;
+
+    /**
+     * @brief Task to run on worker thread.
+     */
+    struct Task {
+        Task() = default;
+
+        template <typename F>
+        Task(const F& _task, int _worker_id = -1) : func(_task), worker_id(_worker_id) {}
+
+        template <typename F>
+        Task(F&& _task, int _worker_id = -1) : func(std::move(_task)), worker_id(_worker_id) {}
+
+        Task& operator=(Task&) = delete;
+
+        Task& operator=(Task&&) = default;
+
+        /**
+         * @brief Task function to run.
+         */
+        std::function<void()> func;
+
+        /**
+         * @brief If worker_id is not -1, the func must run on the corresponding worker thread. It can't be stole by other worker threads.
+         */
+        worker_id_t worker_id;
+    };
 
 public:
     // ============================
@@ -49,10 +79,10 @@ public:
      *
      * @param _thread_count The number of threads to use. The default value is the total number of hardware threads available, as reported by the implementation. With a hyperthreaded CPU, this will be twice the number of CPU cores. If the argument is zero, the default value will be used instead.
      */
-    thread_pool(const ui32 &_thread_count = std::thread::hardware_concurrency())
+    thread_pool(const ui32 _thread_count = std::thread::hardware_concurrency())
         : thread_count(_thread_count ? _thread_count : std::thread::hardware_concurrency()),
-          local_tasks(thread_count),
-          threads(new std::thread[_thread_count ? _thread_count : std::thread::hardware_concurrency()])
+          tasks(thread_count),
+          threads(new std::thread[thread_count])
     {
         create_threads();
     }
@@ -78,8 +108,8 @@ public:
      */
     ui64 get_tasks_queued() const
     {
-        auto size = tasks.size();
-        for (const auto &t : local_tasks)
+        ui64 size = 0;
+        for (const auto &t : tasks)
             size += t.size();
         return size;
     }
@@ -174,10 +204,11 @@ public:
      * @param task The function to push.
      */
     template <typename F>
-    void push_task(const F &task)
+    void push_task(const F &&task)
     {
         tasks_total++;
-        tasks.push(std::function<void()>(task));
+        push_count++;
+        tasks[push_count % thread_count].emplace(std::forward<const F>(task));
     }
 
     /**
@@ -190,25 +221,26 @@ public:
      * @param args The arguments to pass to the function.
      */
     template <typename F, typename... A>
-    void push_task(const F &task, const A &...args)
+    void push_task(const F &&task, const A &...args)
     {
-        push_task([task, args...]
+        push_task([task = std::forward<decltype(task)>(task), args...]
                   { task(args...); });
     }
 
     /**
-     * @brief Push a function with no arguments or return value into a local task queue.
-     * @details Tasks in a local queue are executed with the same thread, in the same order as they are pushed.
+     * @brief Push a function with no arguments or return value into a task queue bounded to specific worker thread.
+     * @details Tasks with same worker_selector are executed on the same thread, in the same order as they are pushed.
      *
      * @tparam F The type of the function.
-     * @param select_id The ID used to select the worker: woker_id = select_id % thread_count.
+     * @param worker_selector An integer used to select worker thread: woker_id = worker_selector % thread_count.
      * @param task The function to push.
      */
     template <typename F>
-    void push_local_task(int select_id, const F &task)
+    void push_bind_worker_task(int worker_selector, const F &&task)
     {
         tasks_total++;
-        local_tasks[select_id % thread_count].push(std::function<void()>(task));
+        auto worker_id = static_cast<worker_id_t>(worker_selector % thread_count);
+        tasks[worker_id].emplace(std::forward<decltype(task)>(task), worker_id);
     }
 
     /**
@@ -217,15 +249,15 @@ public:
      *
      * @tparam F The type of the function.
      * @tparam A The types of the arguments.
-     * @param select_id The ID used to select the worker: woker_id = select_id % thread_count.
+     * @param worker_selector An integer used to select worker thread: woker_id = worker_selector % thread_count.
      * @param task The function to push.
      * @param args The arguments to pass to the function.
      */
     template <typename F, typename... A>
-    void push_local_task(int select_id, const F &task, const A &...args)
+    void push_bind_worker_task(int worker_selector, const F &&task, const A &...args)
     {
-        push_task(select_id, [task, args...]
-                             { task(args...); });
+        push_task(worker_selector,
+                  [task = std::forward<const F>(task), args...] { task(args...); });
     }
 
     /**
@@ -358,12 +390,13 @@ public:
     /**
      * @brief The duration, in microseconds, that pop tasks from queue could block for. No need to tune this in most cases.
      * @detail Larger duration means:
-     * 1. Fewer unnecessary worker threads wake ups.
-     * 2. Longer worker threads exit wait time, which should be fine for most use cases.
-     * 3. Longer time for work thread from un-paused while popping task to paused state.
-     *    - But you shouldn't rely on setting pause=true and hope adding task won't be executed anyway.
+     * 1. Fewer unnecessary worker threads wake ups. This is a good.
+     * 2. Wait longer to steal work from other threads. This can be an issue.
+     * 3. Wait longer for thread to exit after setting running to false. This should be fine for most use cases.
+     * 4. Longer time for work thread from un-paused popping task blocked state to paused state.
+     *    - But you should not rely on setting pause=true and hope adding func won't be executed anyway.
      */
-    ui32 pop_task_timeout = 100'000;
+    ui32 pop_task_timeout = 1'000;
 
 private:
     // ========================
@@ -397,18 +430,25 @@ private:
      *
      * @param task A reference to the task. Will be populated with a function if the queue is not empty.
      */
-    bool pop_task(std::function<void()> &task, ui32 worker_id, ui32 pop_count)
+    bool pop_task(Task &task, worker_id_t worker_id)
     {
-        // Switch between global queue or local queue first.
-        decltype(tasks)* queue_ptr[2];
-        ui32 mod = worker_id % 2;
-        queue_ptr[0 + mod] = &tasks;
-        queue_ptr[1 - mod] = &local_tasks[worker_id];
-
-        if (queue_ptr[0]->try_pop(task)) {
+        if (tasks[worker_id].try_pop(task))
+        {
             return true;
         }
-        return queue_ptr[1]->wait_and_pop_for(task, sleep_duration);
+
+        // Try to steal work from other queue.
+        worker_id_t end_id = worker_id + static_cast<worker_id_t>(thread_count) - 1;
+        for (worker_id_t i = worker_id + 1; i < end_id; ++i)
+        {
+            if (tasks[i % thread_count].try_pop_if(task, [](const Task& t) { return t.worker_id == -1; } ))
+            {
+                return true;
+            }
+        }
+
+        // Wait on local func queue.
+        return tasks[worker_id].wait_and_pop_for(task, sleep_duration);
     }
 
     /**
@@ -430,18 +470,16 @@ private:
      */
     void worker(ui32 worker_id)
     {
-        ui32 pop_count = 0;
         while (running)
         {
-            ++pop_count;
-            std::function<void()> task;
+            Task task;
             if (paused)
             {
                 sleep_or_yield();
             }
-            else if (pop_task(task))
+            else if (pop_task(task, worker_id))
             {
-                task();
+                task.func();
                 tasks_total--;
             }
         }
@@ -457,23 +495,21 @@ private:
     std::atomic<bool> running = true;
 
     /**
-     * @brief A queue of tasks to be executed by the threads.
-     *
-     * Tasks on this queue will be executed by all threads.
-     */
-    conqueue<std::function<void()>> tasks = {};
-
-    /**
      * @brief The number of threads in the pool.
      */
     ui32 thread_count;
 
     /**
-     * @brief Thread local tasks for each thread.
-     *
-     * Tasks in local_tasks[id] will be executed only by worker thread with worker_id=id;
+     * @brief Total number of push func executed. Used to distribute tasks round-robin to worker threads.
      */
-    std::vector<conqueue<std::function<void()>>> local_tasks;
+    ui32 push_count = 0;
+
+    /**
+     * @brief Task queues for each worker thread.
+     *
+     * Tasks in tasks[id] will be executed only by worker thread with worker_id=id;
+     */
+    std::vector<conqueue<Task>> tasks;
 
     /**
      * @brief A smart pointer to manage the memory allocated for the threads.
