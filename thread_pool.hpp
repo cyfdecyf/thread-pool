@@ -23,6 +23,7 @@
 #include <memory>      // std::shared_ptr, std::unique_ptr
 #include <mutex>       // std::mutex, std::scoped_lock
 #include <thread>      // std::this_thread, std::thread
+#include <tuple>       // std::tuple, std::apply
 #include <type_traits> // std::common_type_t, std::decay_t, std::enable_if_t, std::is_void_v, std::invoke_result_t
 #include <utility>     // std::move
 
@@ -223,11 +224,16 @@ public:
      * @param task The function to push.
      * @param args The arguments to pass to the function.
      */
-    template <typename F, typename... A>
-    void push_task(const F &&task, const A &...args)
+    template <typename F, typename... Args>
+    void push_task(const F &&task, const Args &&...args)
     {
-        push_task([task = std::forward<decltype(task)>(task), args...]
-                  { task(args...); });
+        // Perfect lambda capture in C++17.
+        // From https://stackoverflow.com/a/49902823/
+        push_task([task = std::forward<decltype(task)>(task), args = std::make_tuple(std::forward<decltype(args)>(args) ...)]() mutable {
+            std::apply([&task](auto &&...args) {
+                task(std::forward<decltype(args)>(args)...);
+            }, std::move(args));
+        });
     }
 
     /**
@@ -235,7 +241,7 @@ public:
      * @details Tasks with same worker_selector are executed on the same worker thread, in the same order as they are pushed.
      *
      * @tparam F The type of the function.
-     * @param worker_selector An integer used to select worker thread: woker_id = worker_selector % thread_count.
+     * @param worker_selector An integer used to select worker thread: worker_id = worker_selector % thread_count.
      * @param task The function to push.
      */
     template <typename F>
@@ -251,16 +257,21 @@ public:
      * @details Tasks with same worker_selector are executed on the same worker thread, in the same order as they are pushed.
      *
      * @tparam F The type of the function.
-     * @tparam A The types of the arguments.
-     * @param worker_selector An integer used to select worker thread: woker_id = worker_selector % thread_count.
+     * @tparam Args The types of the arguments.
+     * @param worker_selector An integer used to select worker thread: worker_id = worker_selector % thread_count.
      * @param task The function to push.
      * @param args The arguments to pass to the function.
      */
-    template <typename F, typename... A>
-    void push_bind_task(int worker_selector, const F &&task, const A &...args)
+    template <typename F, typename... Args>
+    void push_bind_task(int worker_selector, const F &&task, const Args &&...args)
     {
-        push_task(worker_selector,
-                  [task = std::forward<const F>(task), args...] { task(args...); });
+        // Perfect lambda capture in C++17.
+        // From https://stackoverflow.com/a/49902823/
+        push_bind_task(worker_selector, [task = std::forward<decltype(task)>(task), args = std::make_tuple(std::forward<decltype(args)>(args) ...)]() mutable {
+            std::apply([&task](auto &&...args) {
+                task(std::forward<decltype(args)>(args)...);
+            }, std::move(args));
+        });
     }
 
     /**
