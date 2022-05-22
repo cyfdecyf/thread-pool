@@ -74,6 +74,16 @@ public:
     }
 
     /**
+     * @brief Push an element to the back of the queue. Object is constructed in-place.
+     */
+    template <typename... Args>
+    void emplace(Args&&... args) {
+        std::scoped_lock<std::mutex> lock(queue_mutex);
+        data_queue.emplace(std::forward<Args>(args)...);
+        not_empty.notify_one();
+    }
+
+    /**
      * @brief Pop an element from the front of the queue, return immediately if the queue is empty.
      *
      * @param data A reference to data element. Move assigned with the element popped from the queue.
@@ -206,3 +216,6 @@ private:
      */
     mutable std::condition_variable not_empty;
 };
+
+//                                        End class timer                                        //
+// ============================================================================================= //
