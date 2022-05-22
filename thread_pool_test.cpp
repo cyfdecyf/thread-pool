@@ -41,8 +41,8 @@ ui32 tests_failed = 0;
 template <typename... T>
 void dual_print(const T &...items)
 {
-    sync_cout.print(items...);
-    sync_file.print(items...);
+    sync_cout.print(get_timestamp(), " ", items...);
+    sync_file.print(get_timestamp(), " ", items...);
 }
 
 /**
@@ -71,6 +71,13 @@ void print_header(const std::string &text, const char &symbol = '=')
     dual_println(std::string(text.length(), symbol));
 }
 
+void print_tasks_stats()
+{
+    dual_println("tasks_total ", pool.get_tasks_total());
+    dual_println("tasks_running ", pool.get_tasks_running());
+    dual_println("tasks_queued ", pool.get_tasks_queued());
+}
+
 /**
  * @brief Get a string representing the current time.
  *
@@ -89,17 +96,19 @@ std::string get_time()
  *
  * @param condition The condition to check.
  */
-void check(const bool condition)
+bool check(const bool condition)
 {
     if (condition)
     {
         dual_println("-> PASSED!");
         tests_succeeded++;
+        return true;
     }
     else
     {
         dual_println("-> FAILED!");
         tests_failed++;
+        return false;
     }
 }
 
@@ -363,6 +372,7 @@ void check_task_monitoring()
     for (ui32 i = 0; i < n * 3; i++)
         pool.push_task([&release, i]
                        {
+                           dual_println("Task ", i, " started.");
                            while (!release[i])
                                std::this_thread::yield();
                            dual_println("Task ", i, " released.");
@@ -376,10 +386,14 @@ void check_task_monitoring()
     dual_println("After releasing ", n, " tasks, should have: ", n * 2, " tasks total, ", n, " tasks running, ", n, " tasks queued...");
     for (ui32 i = n; i < n * 2; i++)
         release[i] = true;
-    check(pool.get_tasks_total() == n * 2 && pool.get_tasks_running() == n && pool.get_tasks_queued() == n);
+    if (!check(pool.get_tasks_total() == n * 2 && pool.get_tasks_running() == n && pool.get_tasks_queued() == n)) {
+        print_tasks_stats();
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     dual_println("After releasing ", n, " more tasks, should have: ", n, " tasks total, ", n, " tasks running, ", 0, " tasks queued...");
-    check(pool.get_tasks_total() == n && pool.get_tasks_running() == n && pool.get_tasks_queued() == 0);
+    if (!check(pool.get_tasks_total() == n && pool.get_tasks_running() == n && pool.get_tasks_queued() == 0)) {
+        print_tasks_stats();
+    }
     for (ui32 i = n * 2; i < n * 3; i++)
         release[i] = true;
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -419,6 +433,7 @@ void check_pausing()
     for (ui32 i = 0; i < n * 3; i++)
         pool.push_task([i]
                        {
+                           dual_println("Task ", i, " started.");
                            std::this_thread::sleep_for(std::chrono::milliseconds(200));
                            dual_println("Task ", i, " done.");
                        });
@@ -431,15 +446,21 @@ void check_pausing()
     pool.paused = false;
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     dual_println("300ms later, should have: ", n * 2, " tasks total, ", n, " tasks running, ", n, " tasks queued...");
-    check(pool.get_tasks_total() == n * 2 && pool.get_tasks_running() == n && pool.get_tasks_queued() == n);
+    if (!check(pool.get_tasks_total() == n * 2 && pool.get_tasks_running() == n && pool.get_tasks_queued() == n)) {
+        print_tasks_stats();
+    }
     dual_println("Pausing pool and using wait_for_tasks() to wait for the running tasks.");
     pool.paused = true;
     pool.wait_for_tasks();
     dual_println("After waiting, should have: ", n, " tasks total, ", 0, " tasks running, ", n, " tasks queued...");
-    check(pool.get_tasks_total() == n && pool.get_tasks_running() == 0 && pool.get_tasks_queued() == n);
+    if (!check(pool.get_tasks_total() == n && pool.get_tasks_running() == 0 && pool.get_tasks_queued() == n)) {
+        print_tasks_stats();
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     dual_println("200ms later, should still have: ", n, " tasks total, ", 0, " tasks running, ", n, " tasks queued...");
-    check(pool.get_tasks_total() == n && pool.get_tasks_running() == 0 && pool.get_tasks_queued() == n);
+    if (!check(pool.get_tasks_total() == n && pool.get_tasks_running() == 0 && pool.get_tasks_queued() == n)) {
+        print_tasks_stats();
+    }
     dual_println("Unpausing pool and using wait_for_tasks() to wait for all tasks.");
     pool.paused = false;
     pool.wait_for_tasks();
