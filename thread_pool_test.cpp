@@ -23,7 +23,7 @@ std::ofstream log_file;
 synced_stream sync_file(log_file);
 
 // A global thread pool object.
-thread_pool pool;
+thread_pool pool(0);
 
 // A global random_device object used to seed some random number generators.
 std::random_device rd;
@@ -181,7 +181,7 @@ void check_push_task()
     dual_println("Checking that push_task() works for a function with one argument and no return value...");
     {
         bool flag = false;
-        pool.push_task([](bool *flag)
+        pool.push_bind_task(0, [](bool *flag)
                        { *flag = true; },
                        &flag);
         pool.wait_for_tasks();
