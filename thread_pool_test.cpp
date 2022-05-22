@@ -364,8 +364,31 @@ void check_sleep_duration()
  */
 void check_task_monitoring()
 {
+    // We need to **pause** thread pool before reset in order for this test to pass.
+    //
+    // Local task queue with work stealing means that tasks can get popped
+    // in a different order than they are pushed.
+    //
+    // Suppose we have 4 threads, then we have 12 tasks to run.
+    // Note:
+    // 1. tasks are round-robin distributed to task queue
+    // 2. If we do not pause thread pool, then worker thread are trying to pop tasks.
+    // So we can get following event sequences:
+    //
+    //   push to tasks[0]: task id 0
+    //   push to tasks[1]: task id 1
+    //   push to tasks[2]: task id 2
+    //   worker thread 0: pop local queue got task id 0
+    //   worker thread 3: pop local queue got false
+    //   push to tasks[3]: task id 3
+    //   push to tasks[0]: task id 5
+    //   worker thread 4: steal task from tasks[0] got task id 5
+    //
+    // In this case, task id 5 got executed before task id 3.
+    // This indeed can happen.
     ui32 n = std::min<ui32>(std::thread::hardware_concurrency(), 4);
     dual_println("Resetting pool to ", n, " threads.");
+    pool.paused = true;
     pool.reset(n);
     dual_println("Submitting ", n * 3, " tasks.");
     std::vector<std::atomic<bool>> release(n * 3);
@@ -377,6 +400,7 @@ void check_task_monitoring()
                                std::this_thread::yield();
                            dual_println("Task ", i, " released.");
                        });
+    pool.paused = false;
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     dual_println("After submission, should have: ", n * 3, " tasks total, ", n, " tasks running, ", n * 2, " tasks queued...");
     check(pool.get_tasks_total() == n * 3 && pool.get_tasks_running() == n && pool.get_tasks_queued() == n * 2);
@@ -410,7 +434,26 @@ void check_pausing()
 {
     ui32 n = std::min<ui32>(std::thread::hardware_concurrency(), 4);
     dual_println("Resetting pool to ", n, " threads.");
-    // If `paused` is false before we reset, there's a race.
+    // We need to **pause** thread pool before reset in order for this test to pass.
+    // If `paused` is false before we reset, there are two races.
+    //
+    // The easy to trigger race: caused by pop task waiting on condition variable.
+    // The original version does not wait on condition variable, thus does not have this race.
+    //
+    // Consider following execution sequence:
+    //      worker thread             test thread
+    // ------------------------  ----------------------
+    //  check !paused => false
+    //  pop wait on cond-var
+    //                            set paused = true
+    //                            push n * 3 tasks
+    //  pop_task got task
+    //
+    // Now the test will fail because we have task executed after "pausing" the thread.
+    //
+    //
+    // The unlikely to happen race: adding task can **happen between** check paused and pop task.
+    // The original version has this race, but it's unlikely to be triggered.
     //
     // After reset new threads are created and work functions are running.
     // Consider following test in thread_pool::worker function:
@@ -424,7 +467,8 @@ void check_pausing()
     //                            push n * 3 tasks
     //  pop_task got task
     //
-    // Now the test will fail.
+    // Now the test will fail because we have task executed after "pausing" the thread.
+
     pool.paused = true;
     pool.reset(n);
     dual_println("Pausing pool.");
