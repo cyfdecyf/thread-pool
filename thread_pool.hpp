@@ -52,10 +52,12 @@ class thread_pool
     struct Task {
         Task() = default;
 
-        template <typename F>
-        Task(F&& _task, int _worker_id = -1): func(std::forward<decltype(_task)>(_task)), worker_id(_worker_id) {}
+        template <typename F,
+                typename = typename std::enable_if_t<!std::is_same<Task, typename std::decay<F>::type>::value>>
+        Task(F&& _task, int _worker_id): func(std::forward<decltype(_task)>(_task)), worker_id(_worker_id) {}
 
         Task(const Task&) = default;
+        Task(Task&&) = default;
         Task& operator=(const Task&) = default;
         Task& operator=(Task&&) = default;
 
@@ -207,7 +209,7 @@ public:
         push_count++;
         worker_id_t worker_id = push_count % thread_count;
         DBG("push_task add task:" + std::to_string(push_count) + " to worker:" + std::to_string(worker_id));
-        tasks[worker_id].emplace(std::forward<decltype(task)>(task));
+        tasks[worker_id].emplace(std::forward<decltype(task)>(task), -1);
     }
 
     /**
