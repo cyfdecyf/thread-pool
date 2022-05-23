@@ -18,12 +18,12 @@ typedef std::int_fast64_t i64;
 typedef std::uint_fast64_t ui64;
 
 // Define two global synced_streams objects: one prints to std::cout and the other to a file.
-synced_stream sync_cout(std::cout);
+thread_pool::synced_stream sync_cout(std::cout);
 std::ofstream log_file;
-synced_stream sync_file(log_file);
+thread_pool::synced_stream sync_file(log_file);
 
 // A global thread pool object.
-thread_pool pool(0);
+thread_pool::thread_pool pool(0);
 
 // A global random_device object used to seed some random number generators.
 std::random_device rd;
@@ -41,8 +41,8 @@ ui32 tests_failed = 0;
 template <typename... T>
 void dual_print(const T &...items)
 {
-    sync_cout.print(get_timestamp(), " ", items...);
-    sync_file.print(get_timestamp(), " ", items...);
+    sync_cout.print(thread_pool::get_timestamp(), " ", items...);
+    sync_file.print(thread_pool::get_timestamp(), " ", items...);
 }
 
 /**
@@ -997,7 +997,7 @@ void check_performance()
     random_matrix_generator<double, std::uniform_real_distribution<double>> rnd(-1000, 1000);
 
     // Initialize a timer object to measure the execution time of various operations.
-    timer tmr;
+    thread_pool::timer tmr;
 
     // If the CPU has more than 8 threads, we leave 2 threads for the rest of the operating system. Otherwise, performance may suffer.
     const ui32 thread_count = pool.get_thread_count() <= 8 ? pool.get_thread_count() : pool.get_thread_count() - 2;

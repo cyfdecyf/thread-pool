@@ -30,6 +30,8 @@
 #include "conqueue.hpp"
 #include "debug.h"
 
+namespace thread_pool {
+
 // ============================================================================================= //
 //                                    Begin class thread_pool                                    //
 
@@ -671,3 +673,5 @@ private:
 
 //                                        End class timer                                        //
 // ============================================================================================= //
+
+}  // namespace thread_pool

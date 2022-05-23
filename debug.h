@@ -4,6 +4,8 @@
 #include <chrono>
 #include <iostream>
 
+namespace thread_pool {
+
 /**
  * @brief A global variable to control whether or not debug logging code should be enabled.
  * @detail Debug printing may prevent some races from happen. Use with caution.
@@ -26,3 +28,5 @@ static inline uint64_t get_timestamp() {
             + " " + (msg) + "\n"); \
         } \
     } while (0)
+
+}  // namespace thread_pool

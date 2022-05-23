@@ -9,6 +9,8 @@
 #include <mutex>       // std::mutex, std::scoped_lock
 #include <queue>       // std::queue
 
+namespace thread_pool {
+
 // ============================================================================================= //
 //                                    Begin class conqueue                                       //
 
@@ -237,3 +239,5 @@ private:
 
 //                                        End class timer                                        //
 // ============================================================================================= //
+
+}  // namespace thread_pool
