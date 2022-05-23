@@ -401,28 +401,35 @@ void check_task_monitoring()
                            dual_println("Task ", i, " released.");
                        });
     pool.paused = false;
+
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     dual_println("After submission, should have: ", n * 3, " tasks total, ", n, " tasks running, ", n * 2, " tasks queued...");
     check(pool.get_tasks_total() == n * 3 && pool.get_tasks_running() == n && pool.get_tasks_queued() == n * 2);
+
     for (ui32 i = 0; i < n; i++)
         release[i] = true;
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     dual_println("After releasing ", n, " tasks, should have: ", n * 2, " tasks total, ", n, " tasks running, ", n, " tasks queued...");
-    for (ui32 i = n; i < n * 2; i++)
-        release[i] = true;
     if (!check(pool.get_tasks_total() == n * 2 && pool.get_tasks_running() == n && pool.get_tasks_queued() == n)) {
         print_tasks_stats();
     }
+
+    for (ui32 i = n; i < n * 2; i++)
+        release[i] = true;
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     dual_println("After releasing ", n, " more tasks, should have: ", n, " tasks total, ", n, " tasks running, ", 0, " tasks queued...");
     if (!check(pool.get_tasks_total() == n && pool.get_tasks_running() == n && pool.get_tasks_queued() == 0)) {
         print_tasks_stats();
     }
+
     for (ui32 i = n * 2; i < n * 3; i++)
         release[i] = true;
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     dual_println("After releasing the final ", n, " tasks, should have: ", 0, " tasks total, ", 0, " tasks running, ", 0, " tasks queued...");
-    check(pool.get_tasks_total() == 0 && pool.get_tasks_running() == 0 && pool.get_tasks_queued() == 0);
+    if (!check(pool.get_tasks_total() == 0 && pool.get_tasks_running() == 0 && pool.get_tasks_queued() == 0)) {
+        print_tasks_stats();
+    }
+
     dual_println("Resetting pool to ", std::thread::hardware_concurrency(), " threads.");
     pool.reset(std::thread::hardware_concurrency());
 }
