@@ -24,11 +24,6 @@ class conqueue
 {
     using ui32 = std::uint_fast32_t;
     using size_type = typename std::deque<T>::size_type;
-    /**
-     * @brief The default duration, in microseconds, that wait_and_pop_for will wait.
-     */
-    static constexpr ui32 default_wait_pop_timeout = 1000;
-
 
 public:
     // ============================
@@ -42,7 +37,7 @@ public:
 
     ~conqueue() = default;
 
-    // Those special member functions requires locking. No usage when used in thread_pool.
+    // Those special member functions requires locking. No usage in thread_pool.
     conqueue(const conqueue<T>& rhs) = delete;
     conqueue(const conqueue<T>&& rhs) = delete;
     conqueue<T>& operator=(const conqueue<T>& rhs) = delete;
@@ -135,13 +130,10 @@ public:
     /**
      * @brief Pop an element from the front of the queue, wait at most timeout_us if there's no data in the queue.
      *
-     * @param timeout_us Wait timeout in microseconds. If 0, wait for a default timeout. Use wait_and_pop for infinite wait.
+     * @param timeout_us Wait timeout in microseconds.
      * @return true if element get poped, false otherwise.
      */
     bool wait_and_pop_for(T &data, ui32 timeout_us) {
-        if (timeout_us == 0) {
-            timeout_us = default_wait_pop_timeout;
-        }
         std::unique_lock lock(queue_mutex);
         not_empty.wait_for(lock, std::chrono::microseconds(timeout_us),
                            [this]() { return !data_queue.empty(); });
