@@ -28,7 +28,7 @@
 #include <utility>     // std::move
 
 #include "conqueue.hpp"
-#include "debug.h"
+#include "thread_pool_debug.h"
 
 namespace thread_pool {
 
@@ -208,7 +208,7 @@ public:
         tasks_total++;
         push_count++;
         worker_id_t worker_id = push_count % thread_count;
-        DBG("push_task add task:" + std::to_string(push_count) + " to worker:" + std::to_string(worker_id));
+        DBG_THREAD_POOL("push_task add task:" + std::to_string(push_count) + " to worker:" + std::to_string(worker_id));
         tasks[worker_id].emplace(std::forward<decltype(task)>(task), -1);
     }
 
@@ -456,7 +456,7 @@ private:
     {
         if (tasks[worker_id].try_pop(task))
         {
-            DBG("pop_task: worker:" + std::to_string(worker_id) + " got task from local queue");
+            DBG_THREAD_POOL("pop_task: worker:" + std::to_string(worker_id) + " got task from local queue");
             return true;
         }
 
@@ -465,7 +465,7 @@ private:
         }
 
         // Wait on local task queue.
-        DBG("pop_task: worker:" + std::to_string(worker_id) + " waiting for task");
+        DBG_THREAD_POOL("pop_task: worker:" + std::to_string(worker_id) + " waiting for task");
         return tasks[worker_id].wait_and_pop_for(task, pop_task_timeout);
     }
 
@@ -494,7 +494,7 @@ private:
         {
             if (tasks[i % thread_count].try_pop_if(task, [](const Task& t) { return t.worker_id == -1; } ))
             {
-                DBG("pop_task: worker:" + std::to_string(worker_id) + " steal task from worker:" + std::to_string(i));
+                DBG_THREAD_POOL("pop_task: worker:" + std::to_string(worker_id) + " steal task from worker:" + std::to_string(i));
                 return true;
             }
         }

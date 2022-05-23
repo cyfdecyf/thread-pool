@@ -21,7 +21,7 @@ static inline uint64_t get_timestamp() {
 
 // msg should be a single string.
 // This is to avoid multiple << resulting interleaved debug message.
-#define DBG(msg) \
+#define DBG_THREAD_POOL(msg) \
     do { \
         if constexpr (debug) { \
             std::cout << std::to_string(get_timestamp()) + " " + (std::string(__FILENAME__)  + ":" + std::to_string(__LINE__) \

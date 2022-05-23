@@ -22,7 +22,7 @@ endif()
 
 add_executable(thread_pool_test
         conqueue.hpp
-        debug.h
+        thread_pool_debug.h
         thread_pool.hpp
         thread_pool_test.cpp)
 target_link_libraries(thread_pool_test
