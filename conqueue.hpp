@@ -35,12 +35,20 @@ public:
      */
     conqueue() = default;
 
+    /**
+     * @brief Move constructor.
+     */
+    conqueue(const conqueue<T>&& rhs) {
+        std::scoped_lock<std::mutex> lock(rhs.queue_mutex);
+        data_queue = std::move(rhs.data_queue);
+    }
+
     ~conqueue() = default;
 
-    // Those special member functions requires locking. No usage in thread_pool.
+    // Those special member functions requires locking. Not used in thread_pool.
     conqueue(const conqueue<T>& rhs) = delete;
-    conqueue(const conqueue<T>&& rhs) = delete;
     conqueue<T>& operator=(const conqueue<T>& rhs) = delete;
+    conqueue<T>& operator=(conqueue<T>&& rhs) = delete;
 
     // =======================
     // Public member functions

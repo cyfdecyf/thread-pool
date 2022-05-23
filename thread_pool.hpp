@@ -53,13 +53,10 @@ class thread_pool
         Task() = default;
 
         template <typename F>
-        Task(const F& _task, int _worker_id = -1) : func(_task), worker_id(_worker_id) {}
+        Task(F&& _task, int _worker_id = -1): func(std::forward<decltype(_task)>(_task)), worker_id(_worker_id) {}
 
-        template <typename F>
-        Task(F&& _task, int _worker_id = -1) : func(std::move(_task)), worker_id(_worker_id) {}
-
-        Task& operator=(Task&) = delete;
-
+        Task(const Task&) = default;
+        Task& operator=(const Task&) = default;
         Task& operator=(Task&&) = default;
 
         /**
@@ -84,9 +81,7 @@ public:
      * @param _thread_count The number of threads to use. Value 0 means the total number of hardware threads available, as reported by the implementation. With a hyperthreaded CPU, this will be twice the number of CPU cores. If the argument is zero, the default value will be used instead.
      */
     thread_pool(const ui32 _thread_count)
-        : thread_count((_thread_count != 0) ? _thread_count : std::thread::hardware_concurrency()),
-          tasks(thread_count),
-          threads(new std::thread[thread_count])
+        : thread_count((_thread_count != 0) ? _thread_count : std::thread::hardware_concurrency())
     {
         create_threads();
     }
@@ -96,8 +91,6 @@ public:
      */
     ~thread_pool()
     {
-        wait_for_tasks();
-        running = false;
         destroy_threads();
     }
 
@@ -214,7 +207,7 @@ public:
         push_count++;
         worker_id_t worker_id = push_count % thread_count;
         DBG("push_task add task:" + std::to_string(push_count) + " to worker:" + std::to_string(worker_id));
-        tasks[worker_id].emplace(std::forward<const F>(task));
+        tasks[worker_id].emplace(std::forward<decltype(task)>(task));
     }
 
     /**
@@ -279,19 +272,13 @@ public:
     /**
      * @brief Reset the number of threads in the pool. Waits for all currently running tasks to be completed, then destroys all threads in the pool and creates a new thread pool with the new number of threads. Any tasks that were waiting in the queue before the pool was reset will then be executed by the new threads. If the pool was paused before resetting it, the new pool will be paused as well.
      *
-     * @param _thread_count The number of threads to use. The default value is the total number of hardware threads available, as reported by the implementation. With a hyperthreaded CPU, this will be twice the number of CPU cores. If the argument is zero, the default value will be used instead.
+     * @param _thread_count The number of threads to use. Value 0 means the total number of hardware threads available, as reported by the implementation. With a hyperthreaded CPU, this will be twice the number of CPU cores. If the argument is zero, the default value will be used instead.
      */
-    void reset(const ui32 &_thread_count = std::thread::hardware_concurrency())
+    void reset(const ui32 &_thread_count)
     {
-        bool was_paused = paused;
-        paused = true;
-        wait_for_tasks();
-        running = false;
         destroy_threads();
-        thread_count = _thread_count ? _thread_count : std::thread::hardware_concurrency();
-        threads.reset(new std::thread[thread_count]);
-        paused = was_paused;
-        running = true;
+
+        thread_count = (_thread_count != 0) ? _thread_count : std::thread::hardware_concurrency();
         create_threads();
     }
 
@@ -432,9 +419,15 @@ private:
      */
     void create_threads()
     {
-        for (ui32 i = 0; i < thread_count; i++)
+        running = true;
+        tasks_total = 0;
+        push_count = 0;
+        tasks.resize(thread_count);
+
+        threads.reserve(thread_count);
+        for (worker_id_t i = 0; i < static_cast<worker_id_t>(thread_count); i++)
         {
-            threads[i] = std::thread(&thread_pool::worker, this, i);
+            threads.emplace_back(&thread_pool::worker, this, i);
         }
     }
 
@@ -443,10 +436,13 @@ private:
      */
     void destroy_threads()
     {
+        running = false;
         for (ui32 i = 0; i < thread_count; i++)
         {
             threads[i].join();
         }
+        threads.clear();
+        tasks.clear();
     }
 
     /**
@@ -537,7 +533,7 @@ private:
     /**
      * @brief The number of threads in the pool.
      */
-    ui32 thread_count;
+    ui32 thread_count = 0;
 
     /**
      * @brief Total number of push_task executed. Used to round-robin distribute tasks to worker task queues.
@@ -552,9 +548,9 @@ private:
     std::vector<conqueue<Task>> tasks;
 
     /**
-     * @brief A smart pointer to manage the memory allocated for the threads.
+     * @brief All threads in the pool.
      */
-    std::unique_ptr<std::thread[]> threads;
+    std::vector<std::thread> threads;
 
     /**
      * @brief An atomic variable to keep track of the total number of unfinished tasks - either still in the queue, or running in a thread.

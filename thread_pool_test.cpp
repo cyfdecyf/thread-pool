@@ -23,7 +23,8 @@ std::ofstream log_file;
 thread_pool::synced_stream sync_file(log_file);
 
 // A global thread pool object.
-thread_pool::thread_pool pool(0);
+static constexpr ui32 default_thread_count = 8;
+thread_pool::thread_pool pool(default_thread_count);
 
 // A global random_device object used to seed some random number generators.
 std::random_device rd;
@@ -142,8 +143,8 @@ ui32 count_unique_threads()
  */
 void check_constructor()
 {
-    dual_println("Checking that the thread pool reports a number of threads equal to the hardware concurrency...");
-    check(pool.get_thread_count() == std::thread::hardware_concurrency());
+    dual_println("Checking that the thread pool reports a number of threads equal to ", default_thread_count, "...");
+    check(pool.get_thread_count() == default_thread_count);
     dual_println("Checking that the manually counted number of unique thread IDs is equal to the reported number of threads...");
     check(pool.get_thread_count() == count_unique_threads());
 }
@@ -158,7 +159,7 @@ void check_reset()
     check(pool.get_thread_count() == std::thread::hardware_concurrency() / 2);
     dual_println("Checking that after reset() the manually counted number of unique thread IDs is equal to the reported number of threads...");
     check(pool.get_thread_count() == count_unique_threads());
-    pool.reset(std::thread::hardware_concurrency());
+    pool.reset(0);
     dual_println("Checking that after a second reset() the thread pool reports a number of threads equal to the hardware concurrency...");
     check(pool.get_thread_count() == std::thread::hardware_concurrency());
     dual_println("Checking that after a second reset() the manually counted number of unique thread IDs is equal to the reported number of threads...");
